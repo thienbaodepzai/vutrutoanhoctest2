@@ -15,6 +15,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { MusicPlayerWidget } from './components/MusicPlayerWidget';
 import { GradePromotionModal } from './components/GradePromotionModal';
 import { GradePromotionQuiz } from './components/GradePromotionQuiz';
+import { UserSurveyModal } from './components/UserSurveyModal';
 import {
   Home,
   BookOpen,
@@ -37,6 +38,8 @@ const MainAppContent: React.FC = () => {
     setLockedGradeAttempt,
     activePromotionExamGrade,
     setActivePromotionExamGrade,
+    isSurveyModalOpen,
+    closeSurveyModal,
   } = useMathVerse();
 
   if (!user) {
@@ -132,6 +135,13 @@ const MainAppContent: React.FC = () => {
           onClose={() => setActivePromotionExamGrade(null)}
         />
       )}
+
+      {/* Weekly User Feedback Survey Modal */}
+      <UserSurveyModal
+        isOpen={isSurveyModalOpen}
+        onClose={closeSurveyModal}
+        currentWeek={Math.min(4, Math.max(1, Math.ceil((user?.streak || 1) / 7)))}
+      />
 
       {/* Mobile Bottom Navigation Bar */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/90 backdrop-blur-xl border-t border-slate-800 px-2 py-1.5 flex items-center justify-around">

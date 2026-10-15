@@ -74,10 +74,14 @@ export interface MistakeRecord {
   questionId: string;
   questionText: string;
   topic: string;
+  subtopic?: string;
   userAnswer: string;
   correctAnswer: string;
   explanation: string;
   timestamp: number;
+  failCount: number; // Số lần sai
+  isResolved?: boolean; // Đánh dấu đã hiểu
+  resolvedAt?: number;
 }
 
 export interface UserProfile {
@@ -159,3 +163,58 @@ export interface AIAccuracyStats {
   wrongRate: number; // Tỷ lệ báo sai tính theo phần trăm (%)
   records: AIFeedbackRecord[];
 }
+
+export interface RoadmapStep {
+  stepNumber: number;
+  title: string;
+  description: string;
+  actionType: 'lesson' | 'practice' | 'quiz';
+  targetTopic?: string;
+  targetLessonId?: string;
+  isCompleted?: boolean;
+}
+
+export interface TopicCompetency {
+  topic: string;
+  total: number;
+  correct: number;
+  rate: number;
+  status: 'strong' | 'weak' | 'moderate' | 'untested';
+}
+
+export interface StudentAIAnalysis {
+  id: string;
+  analyzedAt: number;
+  totalAnswered: number;
+  overallAccuracy: number;
+  strengths: string[];
+  weaknesses: string[];
+  topicsToReview: string[];
+  roadmap: RoadmapStep[];
+  aiSummary: string;
+}
+
+export interface UserSurveyRecord {
+  id: string;
+  userName?: string;
+  grade?: number;
+  weekNumber: number;
+  easeOfUseRating: number; // 1-5 sao
+  helpfulnessRating: number; // 1-5 sao
+  favoriteFeature: string;
+  feedbackText?: string;
+  timestamp: number;
+}
+
+export interface UserFeedbackStats {
+  totalSurveys: number;
+  averageSatisfaction: number; // Điểm hài lòng trung bình (thang điểm 5)
+  averageEaseOfUse: number;
+  averageHelpfulness: number;
+  mostLikedFeature: string;
+  featureBreakdown: { feature: string; count: number; percentage: number }[];
+  ratingDistribution: { stars: number; count: number; percentage: number }[];
+  weeklyTrends: { week: number; avgRating: number; count: number }[];
+  records: UserSurveyRecord[];
+}
+

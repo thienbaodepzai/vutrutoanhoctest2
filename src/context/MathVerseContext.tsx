@@ -3,6 +3,8 @@ import { Grade, UserProfile, MistakeRecord } from '../types/mathverse';
 import { BADGES_DATA, getUserLevel } from '../data/badgesData';
 import { soundManager } from '../utils/soundEffects';
 import { isGradeUnlocked } from '../data/promotionExamsData';
+import { analyzeStudentCompetency } from '../utils/aiCompetencyAnalytics';
+import { shouldPromptWeeklySurvey } from '../utils/userSurvey';
 
 interface MathVerseContextType {
   user: UserProfile | null;
@@ -16,6 +18,9 @@ interface MathVerseContextType {
   setLockedGradeAttempt: (grade: Grade | null) => void;
   activePromotionExamGrade: Grade | null;
   setActivePromotionExamGrade: (grade: Grade | null) => void;
+  isSurveyModalOpen: boolean;
+  openSurveyModal: () => void;
+  closeSurveyModal: () => void;
   login: (name: string, grade: Grade, avatar: string) => void;
   logout: () => void;
   addXp: (amount: number, reason?: string) => void;
@@ -35,6 +40,8 @@ interface MathVerseContextType {
   unlockGrade: (sourceGrade: Grade, nextGrade: Grade, score: number, total: number) => void;
   updateProfile: (name: string, avatar: string) => void;
   resetAllData: () => void;
+  markMistakeUnderstood: (questionId: string) => void;
+  removeMistakeRecord: (questionId: string) => void;
   recentXpGained: { amount: number; reason?: string } | null;
   newBadgeUnlocked: string | null;
   clearNewBadge: () => void;
@@ -115,6 +122,21 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // State for locked grade attempt and active promotion exam
   const [lockedGradeAttempt, setLockedGradeAttempt] = useState<Grade | null>(null);
   const [activePromotionExamGrade, setActivePromotionExamGrade] = useState<Grade | null>(null);
+
+  // State for weekly user survey modal
+  const [isSurveyModalOpen, setIsSurveyModalOpen] = useState(false);
+  const openSurveyModal = () => setIsSurveyModalOpen(true);
+  const closeSurveyModal = () => setIsSurveyModalOpen(false);
+
+  // Auto prompt survey after each week of study (or after sufficient learning activity)
+  useEffect(() => {
+    if (user && shouldPromptWeeklySurvey(user)) {
+      const timer = setTimeout(() => {
+        setIsSurveyModalOpen(true);
+      }, 1800);
+      return () => clearTimeout(timer);
+    }
+  }, [user]);
 
   // Sync with sound manager
   useEffect(() => {
@@ -251,22 +273,50 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
       };
 
-      let mistakes = [...prev.recentMistakes];
+      let mistakes = [...(prev.recentMistakes || [])];
       if (!isCorrect) {
-        const newMistake: MistakeRecord = {
-          questionId,
-          questionText,
-          topic,
-          userAnswer,
-          correctAnswer,
-          explanation,
-          timestamp: Date.now(),
-        };
-        // Keep at most 20 recent mistakes
-        mistakes = [newMistake, ...mistakes.filter((m) => m.questionId !== questionId)].slice(0, 20);
+        const existingIdx = mistakes.findIndex((m) => m.questionId === questionId);
+        if (existingIdx >= 0) {
+          const old = mistakes[existingIdx];
+          const updatedRecord: MistakeRecord = {
+            ...old,
+            questionText,
+            topic,
+            userAnswer,
+            correctAnswer,
+            explanation,
+            timestamp: Date.now(),
+            failCount: (old.failCount || 1) + 1, // Tăng số lần sai
+            isResolved: false, // Sai lại thì chuyển về trạng thái cần ôn
+          };
+          mistakes.splice(existingIdx, 1);
+          mistakes.unshift(updatedRecord);
+        } else {
+          const newMistake: MistakeRecord = {
+            questionId,
+            questionText,
+            topic,
+            userAnswer,
+            correctAnswer,
+            explanation,
+            timestamp: Date.now(),
+            failCount: 1, // Lần đầu làm sai
+            isResolved: false,
+          };
+          mistakes.unshift(newMistake);
+        }
+        // Giữ tối đa 50 câu sai gần nhất
+        mistakes = mistakes.slice(0, 50);
       } else {
-        // If answered correctly later, remove from mistakes
-        mistakes = mistakes.filter((m) => m.questionId !== questionId);
+        // Khi học sinh làm lại đúng, cập nhật trạng thái đã hiểu
+        const existingIdx = mistakes.findIndex((m) => m.questionId === questionId);
+        if (existingIdx >= 0) {
+          mistakes[existingIdx] = {
+            ...mistakes[existingIdx],
+            isResolved: true,
+            resolvedAt: Date.now(),
+          };
+        }
       }
 
       const updated: UserProfile = {
@@ -278,7 +328,10 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         recentMistakes: mistakes,
       };
 
-      return checkBadgeUnlocks(updated);
+      const unlockedUser = checkBadgeUnlocks(updated);
+      // Tự động kích hoạt AI phân tích năng lực sau mỗi lần làm bài
+      analyzeStudentCompetency(unlockedUser);
+      return unlockedUser;
     });
 
     if (isCorrect) {
@@ -366,6 +419,46 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setNewBadgeUnlocked(null);
   };
 
+  const markMistakeUnderstood = (questionId: string) => {
+    if (!user) return;
+    soundManager.playCorrectSound();
+    setUser((prev) => {
+      if (!prev) return null;
+      const updatedMistakes = (prev.recentMistakes || []).map((m) => {
+        if (m.questionId === questionId) {
+          return {
+            ...m,
+            isResolved: true,
+            resolvedAt: Date.now(),
+          };
+        }
+        return m;
+      });
+
+      const updated = {
+        ...prev,
+        recentMistakes: updatedMistakes,
+      };
+      analyzeStudentCompetency(updated);
+      return updated;
+    });
+  };
+
+  const removeMistakeRecord = (questionId: string) => {
+    if (!user) return;
+    soundManager.playClickSound();
+    setUser((prev) => {
+      if (!prev) return null;
+      const updatedMistakes = (prev.recentMistakes || []).filter((m) => m.questionId !== questionId);
+      const updated = {
+        ...prev,
+        recentMistakes: updatedMistakes,
+      };
+      analyzeStudentCompetency(updated);
+      return updated;
+    });
+  };
+
   return (
     <MathVerseContext.Provider
       value={{
@@ -380,6 +473,9 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setLockedGradeAttempt,
         activePromotionExamGrade,
         setActivePromotionExamGrade,
+        isSurveyModalOpen,
+        openSurveyModal,
+        closeSurveyModal,
         login,
         logout,
         addXp,
@@ -390,6 +486,8 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         unlockGrade,
         updateProfile,
         resetAllData,
+        markMistakeUnderstood,
+        removeMistakeRecord,
         recentXpGained,
         newBadgeUnlocked,
         clearNewBadge,
