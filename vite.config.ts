@@ -5,7 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/vutrutoanhoc/',
+    base: '/vutrutoanhoctest2/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
